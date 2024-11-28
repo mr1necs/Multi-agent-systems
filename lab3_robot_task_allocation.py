@@ -101,6 +101,7 @@ def main():
 
     tasks = [15, 50, 20, 70, 45, 55]
     axes = [
+        Axis(3, 100, 130, 300, 70),
         Axis(2, 100, 200, 300, 70),
         Axis(1, 100, 270, 300, 70),
         Axis(0, 100, 340, 300, 70)
@@ -108,7 +109,8 @@ def main():
 
     axes[0].taskIds = [0, 1]
     axes[1].taskIds = [2, 3]
-    axes[2].taskIds = [4, 5]
+    axes[2].taskIds = [4]
+    axes[2].taskIds = [5]
 
     t = calcTime(tasks, axes)
     print("Initial time: ", t)
@@ -122,7 +124,7 @@ def main():
 
 
     for i in range(len(axes)):
-        axes[i].taskIds = bestPartition[i]
+        axes[i].taskIds = worstPartition[i]
 
     while True:
         for ev in pygame.event.get():
