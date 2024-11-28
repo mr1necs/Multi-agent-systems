@@ -74,7 +74,9 @@ def getBestPartition(axes, tasks):
     pp = getPartitions(ii, len(axes), 0)
 
     bestT = float('inf')
+    worstT = float('-inf')
     bestPartition = None
+    worstPartition = None
 
     for p in pp:
         for i in range(len(axes)):
@@ -84,8 +86,11 @@ def getBestPartition(axes, tasks):
         if t < bestT:
             bestT = t
             bestPartition = p
+        if t > worstT:
+            worstT = t
+            worstPartition = p
 
-    return bestPartition, bestT
+    return bestPartition, bestT, worstPartition, worstT
 
 
 # Основная функция
@@ -94,7 +99,7 @@ def main():
     timer = pygame.time.Clock()
     fps = 20
 
-    tasks = [10, 30, 20, 70, 40, 50]
+    tasks = [15, 50, 20, 70, 45, 55]
     axes = [
         Axis(2, 100, 200, 300, 70),
         Axis(1, 100, 270, 300, 70),
@@ -108,10 +113,13 @@ def main():
     t = calcTime(tasks, axes)
     print("Initial time: ", t)
 
-    bestPartition, bestT = getBestPartition(axes, tasks)
+    bestPartition, bestT, worstPartition, worstT = getBestPartition(axes, tasks)
 
     print("Best time: ", bestT)
-    print("Best partition: ", bestPartition)
+    print("Best partition: ", *bestPartition)
+    print("Worst time: ", worstT)
+    print("worst partition: ", *worstPartition)
+
 
     for i in range(len(axes)):
         axes[i].taskIds = bestPartition[i]
