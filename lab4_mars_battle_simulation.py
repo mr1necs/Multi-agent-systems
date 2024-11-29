@@ -1,7 +1,9 @@
 import sys, pygame
 import numpy as np
 import math
+import random
 
+# Размер окна
 sz = (800, 600)
 
 # Вспомогательные функции
@@ -22,26 +24,16 @@ def drawText(screen, s, x, y):
     surf = font.render(s, True, (0, 0, 0))
     screen.blit(surf, (x, y))
 
-def drawRotRect(screen, color, pc, w, h, ang):
-    pts = [
-        [-w / 2, -h / 2],
-        [+w / 2, -h / 2],
-        [+w / 2, +h / 2],
-        [-w / 2, +h / 2],
-    ]
-    pts = rotArr(pts, ang)
-    pts = np.add(pts, pc)
-    pygame.draw.polygon(screen, color, pts, 2)
-
-# Модель снаряда
+# Модель пули
 class Bullet:
-    def __init__(self, x, y, ang):
+    def __init__(self, x, y, ang, team):
         self.x = x
         self.y = y
         self.ang = ang
         self.vx = 200
         self.L = 10
         self.exploded = False
+        self.team = team  # Команда, которой принадлежит пуля
 
     def getPos(self):
         return [self.x, self.y]
@@ -57,9 +49,9 @@ class Bullet:
         self.x += vec[0] * dt
         self.y += vec[1] * dt
 
-# Модель робота-танка
+# Модель танка
 class Tank:
-    def __init__(self, id, x, y, ang):
+    def __init__(self, id, x, y, ang, color, team):
         self.id = id
         self.x = x
         self.y = y
@@ -67,18 +59,23 @@ class Tank:
         self.angGun = 0
         self.L = 70
         self.W = 45
-        self.vx = 0
-        self.vy = 0
-        self.va = 0
-        self.vaGun = 0
+        self.vx = random.uniform(10, 30)
+        self.va = random.uniform(-0.5, 0.5)
         self.health = 100
+        self.is_active = True
+        self.cooldown = 0
+        self.color = color
+        self.team = team  # Команда танка
 
-    def fire(self):
+    def fire(self, target):
+        if not self.is_active or self.cooldown > 0:
+            return None
         r = self.W / 2.3
         LGun = self.L / 2
         p2 = rot([r + LGun, 0], self.ang + self.angGun)
         p2 = np.add(self.getPos(), p2)
-        return Bullet(*p2, self.ang + self.angGun)
+        self.cooldown = 0.2
+        return Bullet(*p2, self.ang + self.angGun, self.team)
 
     def getPos(self):
         return [self.x, self.y]
@@ -92,25 +89,35 @@ class Tank:
         ]
         pts = rotArr(pts, self.ang)
         pts = np.add(pts, self.getPos())
-        pygame.draw.polygon(screen, (0, 0, 0), pts, 2)
+        pygame.draw.polygon(screen, self.color, pts, 2)
 
         r = self.W / 2.3
-        pygame.draw.circle(screen, (0, 0, 0), self.getPos(), r, 2)
+        pygame.draw.circle(screen, self.color, self.getPos(), int(r), 2)
 
         LGun = self.L / 2
         p0 = self.getPos()
         p1 = rot([r, 0], self.ang + self.angGun)
         p2 = rot([r + LGun, 0], self.ang + self.angGun)
-        pygame.draw.line(screen, (0, 0, 0), np.add(p0, p1), np.add(p0, p2), 3)
+        pygame.draw.line(screen, self.color, np.add(p0, p1), np.add(p0, p2), 3)
 
-        drawText(screen, f"{self.id} ({self.health})", self.x, self.y - self.L / 2 - 12)
+        drawText(screen, f"{self.id} ({int(self.health)})", self.x, self.y - self.L / 2 - 12)
 
     def sim(self, dt):
-        vec = rot([self.vx, self.vy], self.ang)
+        if not self.is_active:
+            return
+        vec = rot([self.vx, 0], self.ang)
         self.x += vec[0] * dt
         self.y += vec[1] * dt
         self.ang += self.va * dt
-        self.angGun += self.vaGun * dt
+
+        if self.cooldown > 0:
+            self.cooldown -= dt
+
+        self.x = max(self.W / 2, min(sz[0] - self.W / 2, self.x))
+        self.y = max(self.L / 2, min(sz[1] - self.L / 2, self.y))
+
+        if self.health <= 0:
+            self.is_active = False
 
 # Основная функция
 def main():
@@ -118,46 +125,66 @@ def main():
     timer = pygame.time.Clock()
     fps = 20
 
-    tank = Tank(0, 200, 200, 1)
-    tank.vx = 20
-    tank.va = -1
-    tank.vaGun = -0.5
+    # Создаем команды танков
+    n = 2
+    team1 = [Tank(i, 200 + n * 5, 100 + i * 100, 0, (255, 0, 0), 1) for i in range(4)]
+    team2 = [Tank(i + 4, 600 + n * 5, 100 + i * 100, math.pi, (0, 0, 255), 2) for i in range(4)]
 
-    tank1 = Tank(1, 500, 350, 1)
-    tank1.vx = 20
-    tank1.va = 1
-    tank1.vaGun = -0.5
-
-    tanks = [tank, tank1]
+    tanks = team1 + team2
     bullets = []
+
+    # Начало сражения
+    start_time = pygame.time.get_ticks()
 
     while True:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 sys.exit(0)
 
-            if ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_1:
-                    b = tank.fire()
-                    bullets.append(b)
-
         dt = 1 / fps
+
+        # Движение танков и стрельба
         for t in tanks:
             t.sim(dt)
+            if t.is_active:
+                enemies = [e for e in tanks if e.id != t.id and e.is_active]
+                if enemies:
+                    closest_enemy = min(enemies, key=lambda e: dist(t.getPos(), e.getPos()))
+                    bullet = t.fire(closest_enemy.getPos())
+                    if bullet:
+                        bullets.append(bullet)
+
+        # Движение пуль и проверка попаданий
         for b in bullets:
             b.sim(dt)
-            if dist(b.getPos(), [sz[0] / 2, sz[1] / 2]) > sz[0]:
+            if b.x < 0 or b.x > sz[0] or b.y < 0 or b.y > sz[1]:
                 b.exploded = True
             for t in tanks:
-                if dist(t.getPos(), b.getPos()) < t.L / 2:
+                if t.team != b.team and dist(t.getPos(), b.getPos()) < t.L / 2 and t.is_active:
                     b.exploded = True
                     t.health -= 10
                     break
 
         bullets = [b for b in bullets if not b.exploded]
 
-        screen.fill((255, 255, 255))
+        # Проверка окончания сражения
+        team1_active = any(t.is_active for t in team1)
+        team2_active = any(t.is_active for t in team2)
 
+        if not team1_active or not team2_active:
+            battle_time = (pygame.time.get_ticks() - start_time) / 1000  # Время в секундах
+            team1_health = sum(t.health for t in team1 if t.is_active)
+            team2_health = sum(t.health for t in team2 if t.is_active)
+            winner = "Team 1 (Red)" if team1_active else "Team 2 (Blue)"
+            print(f"Battle finished in {battle_time:.2f} seconds")
+            print(f"Winner: {winner}")
+            print(f"Team 1 remaining health: {team1_health}")
+            print(f"Team 2 remaining health: {team2_health}")
+            pygame.quit()
+            sys.exit(0)
+
+        # Отрисовка
+        screen.fill((255, 255, 255))
         for t in tanks:
             t.draw(screen)
         for b in bullets:
