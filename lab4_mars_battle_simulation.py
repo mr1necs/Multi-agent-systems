@@ -1,81 +1,107 @@
 import sys, pygame
 import numpy as np
 import math
-import random
+import time
 
-# Размер окна
-sz = (800, 600)
+sz = (1500, 1000)
 
-# Вспомогательные функции
+
 def dist(p1, p2):
     return np.linalg.norm(np.subtract(p1, p2))
 
+
+def euclid(p1, p2):
+    return np.sqrt(np.sum((np.array(p1) - np.array(p2)) ** 2))
+
+
 def rot(v, ang):
-    s, c = math.sin(ang), math.cos(ang)
+    s, c = np.sin(ang), np.cos(ang)
     return [v[0] * c - v[1] * s, v[0] * s + v[1] * c]
+
 
 def rotArr(vv, ang):
     return [rot(v, ang) for v in vv]
 
+
 pygame.font.init()
-font = pygame.font.SysFont('Comic Sans MS', 20)
+font = pygame.font.SysFont('segoeuisemibold', 15)
+
 
 def drawText(screen, s, x, y):
     surf = font.render(s, True, (0, 0, 0))
     screen.blit(surf, (x, y))
 
-# Модель пули
+
+def drawRotRect(screen, color, pc, w, h, ang):
+    pts = [
+        [-w / 2, -h / 2],
+        [w / 2, -h / 2],
+        [w / 2, h / 2],
+        [-w / 2, h / 2],
+    ]
+
+    pts = rotArr(pts, ang)
+    pts = np.add(pts, pc)
+    pygame.draw.polygon(screen, color, pts, 2)
+
+
 class Bullet:
-    def __init__(self, x, y, ang, team):
+    def __init__(self, x, y, ang, t):
         self.x = x
         self.y = y
         self.ang = ang
         self.vx = 200
         self.L = 10
         self.exploded = False
-        self.team = team  # Команда, которой принадлежит пуля
+        self.fromTank = t
 
     def getPos(self):
         return [self.x, self.y]
 
     def draw(self, screen):
         p0 = self.getPos()
-        p1 = rot([-self.L / 2, 0], self.ang)
-        p2 = rot([+self.L / 2, 0], self.ang)
+        p1 = [-self.L / 2, 0]
+        p1 = rot(p1, self.ang)
+        p2 = [self.L / 2, 0]
+        p2 = rot(p2, self.ang)
+
         pygame.draw.line(screen, (0, 0, 0), np.add(p0, p1), np.add(p0, p2), 3)
 
     def sim(self, dt):
-        vec = rot([self.vx, 0], self.ang)
+        vec = [self.vx, 0]
+        vec = rot(vec, self.ang)
         self.x += vec[0] * dt
         self.y += vec[1] * dt
 
-# Модель танка
+
 class Tank:
-    def __init__(self, id, x, y, ang, color, team):
+    def __init__(self, id, x, y, ang):
         self.id = id
         self.x = x
         self.y = y
         self.ang = ang
-        self.angGun = 0
+        self.angGun = ang
         self.L = 70
         self.W = 45
-        self.vx = random.uniform(10, 30)
-        self.va = random.uniform(-0.5, 0.5)
-        self.health = 100
-        self.is_active = True
-        self.cooldown = 0
-        self.color = color
-        self.team = team  # Команда танка
+        self.vx = 0
+        self.vy = 0
+        self.va = 0
+        self.vaGun = 0
+        self.health = 500
+        self.color = (0, 0, 0)
+        self.shootAvailable = True
+        self.gunReady = False
+        self.blocked = False
+        self.oldPos = [x, y]
 
-    def fire(self, target):
-        if not self.is_active or self.cooldown > 0:
-            return None
+    def fire(self):
         r = self.W / 2.3
         LGun = self.L / 2
-        p2 = rot([r + LGun, 0], self.ang + self.angGun)
+        p2 = rot([r + LGun, 0], self.angGun)
         p2 = np.add(self.getPos(), p2)
-        self.cooldown = 0.2
-        return Bullet(*p2, self.ang + self.angGun, self.team)
+        b = Bullet(*p2, self.angGun, self)
+
+        return b
 
     def getPos(self):
         return [self.x, self.y]
@@ -87,112 +113,224 @@ class Tank:
             [-self.L / 2, -self.W / 2],
             [-self.L / 2, self.W / 2]
         ]
+
         pts = rotArr(pts, self.ang)
         pts = np.add(pts, self.getPos())
+
         pygame.draw.polygon(screen, self.color, pts, 2)
 
         r = self.W / 2.3
-        pygame.draw.circle(screen, self.color, self.getPos(), int(r), 2)
+
+        pygame.draw.circle(screen, self.color, self.getPos(), r, 2)
 
         LGun = self.L / 2
         p0 = self.getPos()
-        p1 = rot([r, 0], self.ang + self.angGun)
-        p2 = rot([r + LGun, 0], self.ang + self.angGun)
-        pygame.draw.line(screen, self.color, np.add(p0, p1), np.add(p0, p2), 3)
+        p1 = rot([r, 0], self.angGun)
+        p2 = rot([r + LGun, 0], self.angGun)
 
-        drawText(screen, f"{self.id} ({int(self.health)})", self.x, self.y - self.L / 2 - 12)
+        pygame.draw.line(screen, self.color, np.add(p0, p1), np.add(p0, p2), 3)
+        drawText(screen, f"{self.id} ({self.health})", self.x, self.y - self.L / 2 - 12)
 
     def sim(self, dt):
-        if not self.is_active:
-            return
-        vec = rot([self.vx, 0], self.ang)
+        vec = [self.vx, self.vy]
+        vec = rot(vec, self.ang)
+        self.oldPos = [self.x, self.y]
         self.x += vec[0] * dt
         self.y += vec[1] * dt
-        self.ang += self.va * dt
+        self.ang = (self.ang + self.va * dt) % (2 * np.pi)
+        self.angGun = (self.angGun + self.vaGun * dt) % (2 * np.pi)
 
-        if self.cooldown > 0:
-            self.cooldown -= dt
 
-        self.x = max(self.W / 2, min(sz[0] - self.W / 2, self.x))
-        self.y = max(self.L / 2, min(sz[1] - self.L / 2, self.y))
+def find_enemy(t, tanks):
+    nearest_enemy = tanks[np.argmin(
+        [euclid(t.getPos(), enemy.getPos()) if enemy.id // 1000 != t.id // 1000 and enemy.health > 0 else 10 ** 10 for
+         enemy in tanks])]
 
-        if self.health <= 0:
-            self.is_active = False
+    return nearest_enemy if np.min(
+        [euclid(t.getPos(), enemy.getPos()) if enemy.id // 1000 != t.id // 1000 and enemy.health > 0 else 10 ** 10 for
+         enemy in tanks]) != 10 ** 10 else None
 
-# Основная функция
-def main():
+
+def find_block(t, tanks):
+    return tanks[np.argmin([euclid(t.getPos(),
+                                   block.getPos()) if block.id != t.id and block.id // 1000 == t.id // 1000 or block.health <= 0 else 10 ** 10
+                            for block in tanks])]
+
+
+def find_ang(ang, pos, target_pos):
+    direction_vector = np.array(target_pos) - np.array(pos)
+    direction_vector_normalized = direction_vector / np.linalg.norm(direction_vector)
+    target_angle_rad = np.arctan2(direction_vector_normalized[1], direction_vector_normalized[0])
+    turn_angle = target_angle_rad - ang
+
+    return (np.degrees(turn_angle) + 180) % 360 - 180
+
+
+def blocked(t, ang):
+    t.va = (0 - ang / abs(ang)) * 3
+
+
+def rotate_tank_to_enemy(t, enemy):
+    turn_angle = find_ang(t.ang, t.getPos(), enemy.getPos())
+    t.va = 0 if abs(turn_angle) < 2 else (turn_angle / abs(turn_angle)) * 3
+
+
+def rotate_gun_to_enemy(t, enemy):
+    turn_angle = find_ang(t.angGun, t.getPos(), enemy.getPos())
+
+    if abs(turn_angle) < 2:
+        t.vaGun = 0
+
+        if euclid(t.getPos(), enemy.getPos()) < 200:
+            t.gunReady = True
+        else:
+            t.gunReady = False
+    else:
+        t.vaGun = (turn_angle / abs(turn_angle)) * 0.5
+
+
+def smart_rotate(t, enemy):
+    predicted_pos = np.array(enemy.getPos()) + 100 * (np.array(enemy.getPos()) - np.array(enemy.oldPos))
+
+    turn_angle = find_ang(t.angGun, t.getPos(), predicted_pos)
+    if abs(turn_angle) < 2:
+        t.vaGun = 0
+
+        if euclid(t.getPos(), enemy.getPos()) < 250:
+            t.gunReady = True
+        else:
+            t.gunReady = False
+    else:
+        t.vaGun = (turn_angle / abs(turn_angle)) * 0.5
+
+
+def move(t, enemy):
+    t.vx = 0 if euclid(t.getPos(), enemy.getPos()) < 150 else 30
+
+
+def experiments():
+    count_of_teams = int(input(f'Count of teams: '))
+    team_players = list(map(int, input(f'Count of tanks in teams: ').split()))
+    smart_team = list(map(lambda x: x == '1', input(f'Teams bullet mode (1/0): ').split()))
+
+    pygame.init()
     screen = pygame.display.set_mode(sz)
     timer = pygame.time.Clock()
-    fps = 20
+    fps = 60
+    ended = False
+    winner = 0
+    tanks = []
 
-    # Создаем команды танков
-    n = 2
-    team1 = [Tank(i, 200 + n * 5, 100 + i * 100, 0, (255, 0, 0), 1) for i in range(4)]
-    team2 = [Tank(i + 4, 600 + n * 5, 100 + i * 100, math.pi, (0, 0, 255), 2) for i in range(4)]
+    team_radius = 400
+    angle_step = 360 / count_of_teams
+    player_offset_angle = 15
 
-    tanks = team1 + team2
+    for current_team in range(count_of_teams):
+        team_color = [np.random.randint(0, 255) for _ in range(3)]
+
+        for player in range(team_players[current_team]):
+            angle = np.radians(current_team * angle_step)
+            player_angle_offset = np.radians(player * player_offset_angle)
+            x_pos = sz[0] // 2 + (team_radius + np.random.randint(-100, 100)) * np.cos(angle + player_angle_offset)
+            y_pos = sz[1] // 2 + (team_radius + np.random.randint(-100, 100)) * np.sin(angle + player_angle_offset)
+
+            tank_ang = find_ang(0, [x_pos, y_pos], [sz[0] // 2, sz[1] // 2])
+            current_player = Tank(current_team * 1000 + player, x_pos, y_pos, np.radians(tank_ang))
+            current_player.color = team_color
+            tanks.append(current_player)
+
     bullets = []
 
-    # Начало сражения
-    start_time = pygame.time.get_ticks()
+    start_time = time.time()
 
-    while True:
+    while not ended:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
-                sys.exit(0)
+                pygame.quit()
 
         dt = 1 / fps
 
-        # Движение танков и стрельба
         for t in tanks:
-            t.sim(dt)
-            if t.is_active:
-                enemies = [e for e in tanks if e.id != t.id and e.is_active]
-                if enemies:
-                    closest_enemy = min(enemies, key=lambda e: dist(t.getPos(), e.getPos()))
-                    bullet = t.fire(closest_enemy.getPos())
-                    if bullet:
-                        bullets.append(bullet)
+            if t.health > 0:
+                en = find_enemy(t, tanks)
+                block = find_block(t, tanks)
 
-        # Движение пуль и проверка попаданий
+                if en:
+                    if euclid(t.getPos(), block.getPos()) < 100 and abs(
+                        find_ang(t.ang, t.getPos(), block.getPos())) < 120:
+                        blocked(t, find_ang(t.ang, t.getPos(), block.getPos()))
+                    else:
+                        rotate_tank_to_enemy(t, en)
+
+                    if euclid(t.getPos(), block.getPos()) < euclid(t.getPos(), en.getPos()) \
+                            and abs(abs(find_ang(t.angGun, t.getPos(), en.getPos())) - abs(
+                        find_ang(t.angGun, t.getPos(), np.array(block.getPos())))) < 10:
+                        t.blocked = True
+                    else:
+                        t.blocked = False
+
+                    if smart_team[t.id // 1000]:
+                        smart_rotate(t, en)
+                    else:
+                        rotate_gun_to_enemy(t, en)
+
+                    move(t, en)
+
+                if t.shootAvailable and t.gunReady and not t.blocked:
+                    b = t.fire()
+                    bullets.append(b)
+                    t.shootAvailable = False
+
+                t.sim(dt)
+            else:
+                if t.color != (0, 0, 0):
+                    team_players[t.id // 1000] -= 1
+
+                t.color = (0, 0, 0)
+
+        alive = sum(1 for tp in team_players if tp > 0)
+        winner = next((idx + 1 for idx, tp in enumerate(team_players) if tp > 0), None)
+
+        if alive <= 1: ended = True
+
         for b in bullets:
             b.sim(dt)
-            if b.x < 0 or b.x > sz[0] or b.y < 0 or b.y > sz[1]:
-                b.exploded = True
+
+            if euclid(b.getPos(), b.fromTank.getPos()) > 250: b.exploded = True
+
             for t in tanks:
-                if t.team != b.team and dist(t.getPos(), b.getPos()) < t.L / 2 and t.is_active:
+                if b.fromTank.id // 1000 != t.id // 1000 and t.health > 0 and dist(t.getPos(), b.getPos()) < t.L / 2:
                     b.exploded = True
                     t.health -= 10
                     break
 
+            if b.exploded: b.fromTank.shootAvailable = True
+
         bullets = [b for b in bullets if not b.exploded]
 
-        # Проверка окончания сражения
-        team1_active = any(t.is_active for t in team1)
-        team2_active = any(t.is_active for t in team2)
-
-        if not team1_active or not team2_active:
-            battle_time = (pygame.time.get_ticks() - start_time) / 1000  # Время в секундах
-            team1_health = sum(t.health for t in team1 if t.is_active)
-            team2_health = sum(t.health for t in team2 if t.is_active)
-            winner = "Team 1 (Red)" if team1_active else "Team 2 (Blue)"
-            print(f"Battle finished in {battle_time:.2f} seconds")
-            print(f"Winner: {winner}")
-            print(f"Team 1 remaining health: {team1_health}")
-            print(f"Team 2 remaining health: {team2_health}")
-            pygame.quit()
-            sys.exit(0)
-
-        # Отрисовка
         screen.fill((255, 255, 255))
-        for t in tanks:
-            t.draw(screen)
-        for b in bullets:
-            b.draw(screen)
 
-        drawText(screen, f"NBullets = {len(bullets)}", 5, 5)
+        for b in bullets: b.draw(screen)
+        for t in tanks: t.draw(screen)
 
+        if bullets:
+            drawText(screen, f"NBullets = {len(bullets)}", 5, 5)
+        else:
+            drawText(screen, f"NBullets = {0}", 5, 5)
         pygame.display.flip()
         timer.tick(fps)
 
-main()
+    print(f'Time: {time.time() - start_time}s')
+
+    if winner != 0:
+        drawText(screen, f"WINNER TEAM {winner}!", sz[0] / 2, 5)
+    else:
+        drawText(screen, f"ALL DEFEAT!", sz[0] / 2, 5)
+
+    pygame.display.flip()
+    time.sleep(5)
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    experiments()
