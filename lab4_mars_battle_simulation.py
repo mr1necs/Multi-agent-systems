@@ -87,7 +87,7 @@ class Tank:
         self.vy = 0
         self.va = 0
         self.vaGun = 0
-        self.health = 500
+        self.health = 100
         self.color = (0, 0, 0)
         self.shootAvailable = True
         self.gunReady = False
